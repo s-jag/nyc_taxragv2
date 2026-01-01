@@ -1,139 +1,132 @@
 # NYC Tax Law RAG System
 
-An Advanced Retrieval-Augmented Generation (RAG) system for NYC Tax Law, built with LangChain, ChromaDB, and hybrid search capabilities.
+An Advanced RAG system for NYC Tax Law with HyDE query expansion, parent-child document retrieval, and optional re-ranking guardrails.
 
 ## Features
 
-- **HyDE Query Expansion**: Generates hypothetical answers for better retrieval
-- **Parent-Child Indexing**: Search small chunks, retrieve full legal sections
-- **AI Metadata Enrichment**: LLM-generated keywords, summaries, and question mappings
-- **Jurisdiction Detection**: Warns when queries are about Federal vs NYC taxes
-- **Conversation Memory**: Supports follow-up questions with context
-- **ChromaDB Vector Store**: Persistent vector storage for efficient retrieval
-- **Type-Safe**: Full Python type hints throughout the codebase
+| Feature | Description |
+|---------|-------------|
+| **HyDE Query Expansion** | Generates hypothetical legal answers for better semantic matching |
+| **Parent-Child Indexing** | Search small chunks, retrieve full legal sections |
+| **AI Metadata Enrichment** | LLM-generated summaries, keywords, and question mappings |
+| **Re-ranking Guardrail** | Optional LLM-based relevance filtering (toggleable) |
+| **Jurisdiction Detection** | Warns when queries are about Federal vs NYC taxes |
 
-## Requirements
+## Quick Start
 
-- Python 3.10+
-- OpenAI API key
+```bash
+# Setup
+git clone <repository-url> && cd nyc_taxragv2
+./setup.sh
 
-## Project Structure
+# Configure
+cp .env.example .env  # Add your OPENAI_API_KEY
 
-```
-nyc_taxragv2/
-├── app/
-│   ├── ingest.py        # LegalParser, DocumentEnricher, VectorStoreManager
-│   ├── query_engine.py  # QueryProcessor with HyDE
-│   └── retriever.py     # Retriever (parent-child document swapper)
-├── data/
-│   ├── tax_law.txt      # Raw NYC tax law text
-│   └── docstore.json    # Enriched parent documents (generated)
-├── vectorstore/         # ChromaDB persistence (generated)
-├── tests/               # Test suite (70 tests)
-├── setup.sh             # Environment setup script
-├── requirements.txt     # Python dependencies
-├── .env.example         # Environment template
-└── README.md            # This file
+# Run
+source venv/bin/activate
+streamlit run app/main.py
 ```
 
 ## Architecture
 
 ```
-                        NYC Tax RAG Pipeline
 ┌─────────────────────────────────────────────────────────────────┐
+│  INGESTION PIPELINE                                             │
 │                                                                 │
-│  INGESTION                                                      │
-│  ─────────                                                      │
-│  tax_law.txt → LegalParser → 819 Parent Sections                │
-│                     ↓                                           │
-│              DocumentEnricher (gpt-4o)                          │
-│                     ↓                                           │
-│              EnrichedDocuments with:                            │
-│              • summary, keywords, entities                      │
-│              • hypothetical_questions ← improves retrieval      │
-│              • tax_category, applicable_parties                 │
-│                     ↓                                           │
-│              VectorStoreManager                                 │
-│                     ↓                                           │
-│              Child Chunks (1000 char) → ChromaDB                │
+│  tax_law.txt                                                    │
+│       ↓                                                         │
+│  LegalParser ──→ 819 Parent Sections (by § symbol)              │
+│       ↓                                                         │
+│  DocumentEnricher ──→ AI metadata (summary, keywords, entities) │
+│       ↓                                                         │
+│  VectorStoreManager ──→ Child chunks (1000 char) → ChromaDB     │
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
+│  QUERY PIPELINE                                                 │
 │                                                                 │
-│  QUERY PROCESSING                                               │
-│  ────────────────                                               │
-│  User: "Do I pay taxes on Etsy income?"                         │
-│                     ↓                                           │
-│              QueryProcessor                                     │
-│              ├─ analyze_query() → relevance, jurisdiction       │
-│              └─ generate_hypothetical_answer() → HyDE           │
-│                     ↓                                           │
-│              "Under NYC tax law, self-employment income         │
-│               from e-commerce activities is subject to..."      │
-│                     ↓                                           │
-│              Embed hypothetical → Search ChromaDB               │
-│                     ↓                                           │
-│              Retriever                                          │
-│              ├─ Search children with HyDE embedding             │
-│              └─ Swap children → Full parent sections            │
+│  User Query: "Do I pay taxes on Etsy income?"                   │
+│       ↓                                                         │
+│  QueryProcessor                                                 │
+│  ├─ analyze_query() → relevance check, jurisdiction detection   │
+│  └─ generate_hypothetical_answer() → HyDE expansion             │
+│       ↓                                                         │
+│  Retriever ──→ Search children, return full parent sections     │
+│       ↓                                                         │
+│  ReRanker (optional) ──→ Filter irrelevant docs, or return None │
+│       ↓                                                         │
+│  Answer Generation                                              │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+## Project Structure
 
-1. **Clone and setup**:
-   ```bash
-   git clone <repository-url>
-   cd nyc_taxragv2
-   chmod +x setup.sh
-   ./setup.sh
-   ```
+```
+app/
+├── ingest.py        # LegalParser, DocumentEnricher, VectorStoreManager
+├── query_engine.py  # QueryProcessor (HyDE, conversation memory)
+├── retriever.py     # Retriever (parent-child document swapper)
+└── ranker.py        # ReRanker (optional relevance filtering)
 
-2. **Configure environment**:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your OpenAI API key
-   ```
+tests/               # 80+ tests
+data/
+├── tax_law.txt      # Raw NYC tax law text
+└── docstore.json    # Enriched parent documents (generated)
+```
 
-3. **Add your data**:
-   Place your `tax_law.txt` file in the `data/` directory.
+## Core Components
 
-4. **Run the application**:
-   ```bash
-   source venv/bin/activate
-   streamlit run app/main.py
-   ```
+### 1. LegalParser
+Parses raw tax law text by § symbol into structured sections.
+
+### 2. DocumentEnricher
+Uses GPT-4o to generate metadata for each section:
+- Summary, keywords, entities
+- Hypothetical questions (improves retrieval)
+- Tax category, applicable parties
+
+### 3. VectorStoreManager
+Splits parents into 1000-char child chunks with metadata inheritance. Stores in ChromaDB.
+
+### 4. QueryProcessor (HyDE)
+Expands user queries into hypothetical legal answers for better embedding similarity.
+
+### 5. Retriever
+Searches child chunks, returns full parent documents for complete context.
+
+### 6. ReRanker (Optional)
+Grades each document 0-10 for relevance. Filters docs below threshold. Returns `None` if no relevant docs found (prevents hallucination).
+
+```python
+# Toggle for A/B testing
+reranker = ReRanker(enabled=True, threshold=7.0)
+result = reranker.grade_documents(query, documents)
+if result is None:
+    return "I couldn't find relevant information."
+```
 
 ## Development
 
-### Code Standards
-
-- Python 3.10+ with type hints required
-- Follow PEP 8 style guidelines
-- All functions must have type annotations
-
-### Running Tests
-
 ```bash
-source venv/bin/activate
-pytest tests/
+# Run tests
+pytest tests/ -v
+
+# Code standards
+# - Python 3.10+ with type hints
+# - PEP 8 style
 ```
 
----
+## Progress
 
-## Progress Log
-
-| Task | Status | Date |
-|------|--------|------|
-| Project Init | Completed | 2026-01-01 |
-| Semantic Parser (LegalParser) | Completed | 2026-01-01 |
-| AI Metadata Enrichment (DocumentEnricher) | Completed | 2026-01-01 |
-| Parent-Child Indexing (VectorStoreManager) | Completed | 2026-01-01 |
-| Query Engine with HyDE (QueryProcessor) | Completed | 2026-01-01 |
-| Parent-Child Retriever (Retriever) | Completed | 2026-01-01 |
-
----
+| Component | Status |
+|-----------|--------|
+| LegalParser | Done |
+| DocumentEnricher | Done |
+| VectorStoreManager | Done |
+| QueryProcessor (HyDE) | Done |
+| Retriever | Done |
+| ReRanker | Done |
 
 ## License
 
-MIT License
+MIT
