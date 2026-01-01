@@ -6,6 +6,7 @@ with system internals visibility and database management.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -15,6 +16,30 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
+
+
+def get_qdrant_config() -> tuple[str | None, str | None]:
+    """Get Qdrant configuration from secrets or environment.
+
+    Returns:
+        Tuple of (qdrant_url, qdrant_api_key) or (None, None) if not configured.
+    """
+    # Try Streamlit secrets first (for Streamlit Cloud)
+    try:
+        qdrant_url = st.secrets.get("QDRANT_URL")
+        qdrant_api_key = st.secrets.get("QDRANT_API_KEY")
+        if qdrant_url and qdrant_api_key:
+            return qdrant_url, qdrant_api_key
+    except Exception:
+        pass
+
+    # Fall back to environment variables
+    qdrant_url = os.getenv("QDRANT_URL")
+    qdrant_api_key = os.getenv("QDRANT_API_KEY")
+    if qdrant_url and qdrant_api_key:
+        return qdrant_url, qdrant_api_key
+
+    return None, None
 
 # Page configuration - must be first Streamlit command
 st.set_page_config(
@@ -26,10 +51,22 @@ st.set_page_config(
 
 @st.cache_resource
 def load_vectorstore():
-    """Load the ChromaDB vector store."""
+    """Load the vector store (Qdrant Cloud or local ChromaDB)."""
     from app.ingest import VectorStoreManager
 
-    manager = VectorStoreManager()
+    qdrant_url, qdrant_api_key = get_qdrant_config()
+
+    if qdrant_url and qdrant_api_key:
+        # Cloud mode - use Qdrant
+        manager = VectorStoreManager(
+            use_qdrant=True,
+            qdrant_url=qdrant_url,
+            qdrant_api_key=qdrant_api_key,
+        )
+    else:
+        # Local mode - use ChromaDB
+        manager = VectorStoreManager()
+
     return manager.load_vector_db()
 
 

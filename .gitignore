@@ -49,10 +49,12 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
-# ChromaDB
-vectorstore/*.sqlite3
-vectorstore/chroma.sqlite3
+# ChromaDB (local vector store)
+vectorstore/
 
 # Logs
 *.log
 logs/
+
+# Streamlit secrets (never commit!)
+.streamlit/secrets.toml

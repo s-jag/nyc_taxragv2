@@ -428,7 +428,7 @@ class VectorStoreManager:
     This class handles:
     - Loading enriched parent documents
     - Splitting parents into child chunks
-    - Creating and persisting ChromaDB vector store
+    - Creating and persisting vector store (ChromaDB local or Qdrant cloud)
     """
 
     DEFAULT_CHUNK_SIZE = 1000
@@ -440,13 +440,19 @@ class VectorStoreManager:
         persist_dir: str | Path = "vectorstore",
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+        use_qdrant: bool = False,
+        qdrant_url: str | None = None,
+        qdrant_api_key: str | None = None,
     ) -> None:
         """Initialize the VectorStoreManager.
 
         Args:
-            persist_dir: Directory for ChromaDB persistence.
+            persist_dir: Directory for ChromaDB persistence (local mode).
             chunk_size: Size of text chunks in characters.
             chunk_overlap: Overlap between chunks in characters.
+            use_qdrant: Whether to use Qdrant cloud instead of local ChromaDB.
+            qdrant_url: Qdrant Cloud cluster URL.
+            qdrant_api_key: Qdrant Cloud API key.
         """
         from langchain.text_splitter import RecursiveCharacterTextSplitter
         from langchain_openai import OpenAIEmbeddings
@@ -457,6 +463,9 @@ class VectorStoreManager:
         self.persist_dir = Path(persist_dir)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.use_qdrant = use_qdrant
+        self.qdrant_url = qdrant_url
+        self.qdrant_api_key = qdrant_api_key
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -581,17 +590,15 @@ class VectorStoreManager:
         docstore_path: str | Path,
         collection_name: str = DEFAULT_COLLECTION_NAME,
     ) -> Any:
-        """Create and persist the ChromaDB vector store.
+        """Create and persist the vector store (ChromaDB or Qdrant).
 
         Args:
             docstore_path: Path to the enriched documents JSON.
-            collection_name: Name for the ChromaDB collection.
+            collection_name: Name for the collection.
 
         Returns:
-            The ChromaDB vector store instance.
+            The vector store instance.
         """
-        from langchain_community.vectorstores import Chroma
-
         print(f"Loading enriched documents from {docstore_path}...")
         parents = self.load_enriched_documents(docstore_path)
         print(f"Loaded {len(parents)} parent documents")
@@ -600,8 +607,33 @@ class VectorStoreManager:
         children = self.create_all_children(parents)
         print(f"Created {len(children)} child chunks")
 
-        print("Preparing documents for ChromaDB...")
+        print("Preparing documents...")
         texts, metadatas, ids = self._prepare_chroma_documents(children)
+
+        if self.use_qdrant:
+            return self._create_qdrant_db(texts, metadatas, ids, collection_name)
+        else:
+            return self._create_chroma_db(texts, metadatas, ids, collection_name)
+
+    def _create_chroma_db(
+        self,
+        texts: List[str],
+        metadatas: List[dict],
+        ids: List[str],
+        collection_name: str,
+    ) -> Any:
+        """Create ChromaDB vector store (local mode).
+
+        Args:
+            texts: List of text chunks.
+            metadatas: List of metadata dicts.
+            ids: List of document IDs.
+            collection_name: Name for the collection.
+
+        Returns:
+            The ChromaDB vector store instance.
+        """
+        from langchain_community.vectorstores import Chroma
 
         print(f"Creating ChromaDB vector store at {self.persist_dir}...")
         self.persist_dir.mkdir(parents=True, exist_ok=True)
@@ -615,18 +647,72 @@ class VectorStoreManager:
             persist_directory=str(self.persist_dir),
         )
 
-        print(f"Vector store created with {len(children)} documents")
+        print(f"Vector store created with {len(texts)} documents")
         print(f"Persisted to {self.persist_dir}")
+
+        return vectorstore
+
+    def _create_qdrant_db(
+        self,
+        texts: List[str],
+        metadatas: List[dict],
+        ids: List[str],
+        collection_name: str,
+        force_recreate: bool = True,
+    ) -> Any:
+        """Create Qdrant vector store (cloud mode).
+
+        Args:
+            texts: List of text chunks.
+            metadatas: List of metadata dicts.
+            ids: List of document IDs.
+            collection_name: Name for the collection.
+            force_recreate: Whether to recreate if collection exists.
+
+        Returns:
+            The Qdrant vector store instance.
+        """
+        from langchain_qdrant import QdrantVectorStore
+
+        print(f"Creating Qdrant vector store at {self.qdrant_url}...")
+
+        vectorstore = QdrantVectorStore.from_texts(
+            texts=texts,
+            embedding=self.embeddings,
+            metadatas=metadatas,
+            ids=ids,
+            collection_name=collection_name,
+            url=self.qdrant_url,
+            api_key=self.qdrant_api_key,
+            force_recreate=force_recreate,
+        )
+
+        print(f"Vector store created with {len(texts)} documents")
+        print(f"Uploaded to Qdrant Cloud: {self.qdrant_url}")
 
         return vectorstore
 
     def load_vector_db(
         self, collection_name: str = DEFAULT_COLLECTION_NAME
     ) -> Any:
-        """Load an existing ChromaDB vector store.
+        """Load an existing vector store (ChromaDB or Qdrant).
 
         Args:
-            collection_name: Name of the ChromaDB collection.
+            collection_name: Name of the collection.
+
+        Returns:
+            The vector store instance.
+        """
+        if self.use_qdrant:
+            return self._load_qdrant_db(collection_name)
+        else:
+            return self._load_chroma_db(collection_name)
+
+    def _load_chroma_db(self, collection_name: str) -> Any:
+        """Load ChromaDB vector store (local mode).
+
+        Args:
+            collection_name: Name of the collection.
 
         Returns:
             The ChromaDB vector store instance.
@@ -637,4 +723,24 @@ class VectorStoreManager:
             collection_name=collection_name,
             embedding_function=self.embeddings,
             persist_directory=str(self.persist_dir),
+        )
+
+    def _load_qdrant_db(self, collection_name: str) -> Any:
+        """Load Qdrant vector store (cloud mode).
+
+        Args:
+            collection_name: Name of the collection.
+
+        Returns:
+            The Qdrant vector store instance.
+        """
+        from langchain_qdrant import QdrantVectorStore
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(url=self.qdrant_url, api_key=self.qdrant_api_key)
+
+        return QdrantVectorStore(
+            client=client,
+            collection_name=collection_name,
+            embedding=self.embeddings,
         )
