@@ -454,7 +454,7 @@ class VectorStoreManager:
             qdrant_url: Qdrant Cloud cluster URL.
             qdrant_api_key: Qdrant Cloud API key.
         """
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
         from langchain_openai import OpenAIEmbeddings
         from dotenv import load_dotenv
 

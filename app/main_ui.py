@@ -125,7 +125,7 @@ def rebuild_database() -> None:
     # Step 1: Parse documents
     progress.progress(10, text="Parsing legal documents...")
     parser = LegalParser()
-    sections = parser.parse_file("data/tax_law.txt")
+    sections = parser.load_data("data/tax_law.txt")
     st.sidebar.info(f"Parsed {len(sections)} sections")
 
     # Step 2: Enrich documents
