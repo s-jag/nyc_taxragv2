@@ -11,6 +11,7 @@ An Advanced RAG system for NYC Tax Law with HyDE query expansion, parent-child d
 | **AI Metadata Enrichment** | LLM-generated summaries, keywords, and question mappings |
 | **Re-ranking Guardrail** | Optional LLM-based relevance filtering (toggleable) |
 | **Jurisdiction Detection** | Warns when queries are about Federal vs NYC taxes |
+| **TaxAdvisor (o3-mini)** | Reasoning-based answer generation with strict citations |
 
 ## Quick Start
 
@@ -22,10 +23,22 @@ git clone <repository-url> && cd nyc_taxragv2
 # Configure
 cp .env.example .env  # Add your OPENAI_API_KEY
 
-# Run
+# Run the UI
 source venv/bin/activate
-streamlit run app/main.py
+streamlit run app/main_ui.py
 ```
+
+## UI Features
+
+The Streamlit interface provides:
+
+| Feature | Description |
+|---------|-------------|
+| **System Internals Sidebar** | View HyDE-expanded queries, retrieved sections with scores, and pipeline stats |
+| **Re-ranker Toggle** | Enable/disable re-ranking for A/B testing |
+| **Threshold Slider** | Adjust minimum relevance score (0-10) |
+| **Re-build Database** | One-click database rebuild from source files |
+| **Silence Handling** | Yellow warning box when no relevant docs found (prevents hallucination) |
 
 ## Architecture
 
@@ -54,7 +67,7 @@ streamlit run app/main.py
 │       ↓                                                         │
 │  ReRanker (optional) ──→ Filter irrelevant docs, or return None │
 │       ↓                                                         │
-│  Answer Generation                                              │
+│  TaxAdvisor (o3-mini) ──→ Cited answer with reasoning           │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -63,12 +76,14 @@ streamlit run app/main.py
 
 ```
 app/
+├── main_ui.py       # Streamlit web interface
 ├── ingest.py        # LegalParser, DocumentEnricher, VectorStoreManager
 ├── query_engine.py  # QueryProcessor (HyDE, conversation memory)
 ├── retriever.py     # Retriever (parent-child document swapper)
-└── ranker.py        # ReRanker (optional relevance filtering)
+├── ranker.py        # ReRanker (optional relevance filtering)
+└── generator.py     # TaxAdvisor (full pipeline orchestration)
 
-tests/               # 80+ tests
+tests/               # 106 tests
 data/
 ├── tax_law.txt      # Raw NYC tax law text
 └── docstore.json    # Enriched parent documents (generated)
@@ -105,6 +120,25 @@ if result is None:
     return "I couldn't find relevant information."
 ```
 
+### 7. TaxAdvisor (Full Pipeline)
+Orchestrates the complete RAG pipeline with o3-mini reasoning model. Designed for professional tax preparers with strict citation requirements.
+
+```python
+advisor = TaxAdvisor(
+    vectorstore=vectorstore,
+    docstore_path="data/docstore.json",
+    generation_model="o3-mini",
+    reranker_enabled=True,
+)
+
+response = advisor.answer_question("What are property tax rates?")
+# Returns: TaxAdvisorResponse with:
+#   - answer: Full response with § citations
+#   - sources: List of cited sections
+#   - warnings: Jurisdiction/relevance warnings
+#   - debug_info: Pipeline diagnostics
+```
+
 ## Development
 
 ```bash
@@ -126,6 +160,7 @@ pytest tests/ -v
 | QueryProcessor (HyDE) | Done |
 | Retriever | Done |
 | ReRanker | Done |
+| TaxAdvisor | Done |
 
 ## License
 
